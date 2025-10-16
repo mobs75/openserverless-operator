@@ -4,9 +4,11 @@ metadata:
   name: couchdb
   namespace: {{ namespace }}
 spec:
+  type: NodePort
   selector:
     app: nuvolaris-couchdb
   ports:
     - protocol: TCP
       port: 5984
       targetPort: 5984
+      nodePort: 30984

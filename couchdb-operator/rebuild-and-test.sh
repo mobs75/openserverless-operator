@@ -56,4 +56,20 @@ echo "======================================================"
 kubectl get couchdbinstance test-couchdb -n openserverless-system -o yaml | grep -A 10 "^status:"
 
 echo ""
+echo "🌐 12. Verifico il Service CouchDB (NodePort)..."
+echo "======================================================"
+kubectl get svc couchdb -n nuvolaris -o wide
+
+NODEPORT=$(kubectl get svc couchdb -n nuvolaris -o jsonpath='{.spec.ports[0].nodePort}')
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+echo ""
+echo "📡 CouchDB WebApp (Fauxton) accessibile su:"
+echo "   http://${NODE_IP}:${NODEPORT}/_utils/"
+echo ""
+echo "🔑 Credenziali:"
+kubectl get secret -n nuvolaris couchdb-auth -o jsonpath='{.data.db_username}' | base64 -d && echo
+kubectl get secret -n nuvolaris couchdb-auth -o jsonpath='{.data.db_password}' | base64 -d && echo
+
+echo ""
 echo "✅ Test completato!"

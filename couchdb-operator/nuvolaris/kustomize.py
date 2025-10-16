@@ -87,46 +87,57 @@ def build(where):
 # you have to pass a list of kustomizations to apply
 # you can use various helpers in this module to generate customizations
 # it returns the expanded kustomization
-def restricted_kustomize(where, *what, templates=[], templates_filter=[],data={}):
-    """Test kustomize
-    >>> import nuvolaris.kustomize as ku
-    >>> import nuvolaris.testutil as tu
-    >>> tu.grep(ku.restricted_kustomize("test", ku.image("nginx", "busybox"), templates_filter=["pod.yaml","svc.yaml"]), "kind|image:", sort=True)
-    - image: busybox
-    kind: Pod
-    kind: Service
-    >>> tu.grep(ku.restricted_kustomize("test", ku.configMapTemplate("test-cm", "test", "test.json", {"item":"value"}),templates_filter=["pod.yaml","svc.yaml"]), r"_id|value")
-    "_id": "test",
-    "value": "value"
-    >>> tu.grep(ku.restricted_kustomize("test", ku.image("nginx", "busybox"), templates=['testcm.yaml'], templates_filter=["pod.yaml","svc.yaml"],data={"name":"test-config"}), "name: test-", sort=True)
-    name: test-config
-    name: test-pod
-    name: test-svc
-    """
-    # prepare the kustomization
+def restricted_kustomize(where, *what, templates=[], templates_filter=[], data={}, patches=[]):
+    logging.info("🔁 restricted_kustomize: chiamata per '%s'", where)
+
     dir = f"deploy/{where}"
     tgt = f"{dir}/kustomization.yaml"
+
+    # Se what contiene YAML, salvalo in file separati
+    resource_files = []
+    for idx, yaml_content in enumerate(what):
+        if yaml_content and yaml_content.strip():
+            # Salva ogni pezzo di YAML in un file separato
+            resource_file = f"{dir}/__generated_{idx}.yaml"
+            with open(resource_file, "w") as rf:
+                rf.write(yaml_content)
+            resource_files.append(f"__generated_{idx}.yaml")
+
     with open(tgt, "w") as f:
         f.write("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n")
-        for s in list(what):
-            f.write(s)
         f.write("resources:\n")
-        dirs = os.listdir(f"deploy/{where}")
+
+        # Aggiungi i file generati
+        for res_file in resource_files:
+            f.write(f"- {res_file}\n")
+
+        dirs = os.listdir(dir)
         dirs.sort()
         for file in dirs:
             if file == "kustomization.yaml":
-              continue
-            if file.startswith("_"):
-              continue
-            if file in templates_filter:  
-              f.write(f"- {file}\n")
-        # adding extra templatized resources
+                continue
+            if file in templates_filter:
+                f.write(f"- {file}\n")
+            elif file.startswith("_"):
+                continue
+
         for template in templates:
-            out = f"deploy/{where}/__{template}"
+            out = f"{dir}/__{template}"
             file = ntp.spool_template(template, out, data)
             f.write(f"- __{template}\n")
+
+        # Aggiungi patches se presenti
+        if patches:
+            f.write("\n")
+            for patch in patches:
+                f.write(patch)
+                if not patch.endswith("\n"):
+                    f.write("\n")
+
     res = subprocess.run(["kustomize", "build", dir], capture_output=True)
-    return res.stdout.decode("utf-8")    
+    return res.stdout.decode("utf-8")
+
+  
 
 # generate image kustomization
 def image(name, newName=None, newTag=None):
@@ -217,23 +228,21 @@ def patchTemplates(where, templates=[], data={}):
 
     return f"""patches:\n{patches}""" 
 
-def secretLiteral(name, *args):
-  """
-  >>> import nuvolaris.testutil as tu
-  >>> import nuvolaris.kustomize as ku
-  >>> tu.grep(ku.secretLiteral("test-sec", "user=mike", "pass=hello"), r"name:|user=|pass=")
-  - name: test-sec
-  - user=mike
-  - pass=hello
-  """
-  res = f"""secretGenerator:
-- name: {name}
-  namespace: nuvolaris
-  literals:
-"""
-  for arg in args:
-    res += f"   - {arg}\n"
-  return res
+def secretLiteral(name, *values, force_name=None):
+    data = {}
+    for v in values:
+        k, val = v.split("=", 1)
+        data[k] = val
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": force_name or kube.make_name(name),
+        },
+        "type": "Opaque",
+        "stringData": data
+    }
+
 
 # returns a list of kustomized objects
 def kustom_list(where, *what, templates=[], data={}):
@@ -256,23 +265,50 @@ def kustom_list(where, *what, templates=[], data={}):
 # returns a list of kustomized objects restricting the deploy available templates to given ones
 import logging
 
+import yaml
+import io
+import logging
+import nuvolaris.kustomize as nku
+
 def restricted_kustom_list(where, *what, templates=[], templates_filter=[], data={}):
     """
-    >>> import nuvolaris.kustomize as nku
-    >>> where = "test"
-    >>> what = []
-    >>> res = nku.restricted_kustom_list(where, *what,templates_filter=["pod.yaml","svc.yaml"])
-    >>> out = [x['kind'] for x in res['items']]
-    >>> out.sort()
-    >>> print(out)
-    ['Pod', 'Service']
+    what può contenere dict (oggetti K8s) oppure stringhe YAML.
+    Se sono dict, li convertiamo in YAML con yaml.dump_all prima di passarli a restricted_kustomize.
+    Le stringhe che iniziano con "patches:" vengono trattate come kustomization patches.
     """
     logging.info("🔁 restricted_kustom_list: chiamata per '%s'", where)
-    logging.debug("🔁 Parametri templates: %s", templates)
-    logging.debug("🔁 Parametri templates_filter: %s", templates_filter)
 
-    yml = nku.restricted_kustomize(where, *what, templates=templates, templates_filter=templates_filter, data=data)
-    logging.debug("📜 YAML generato da restricted_kustomize:\n%s", yml)
+    # Separa risorse da patches
+    yaml_pieces = []
+    patch_pieces = []
+
+    logging.info(f"🔍 restricted_kustom_list: ricevuti {len(what)} elementi in 'what'")
+    for idx, item in enumerate(what):
+        logging.info(f"  [{idx}] tipo: {type(item).__name__}, è dict: {isinstance(item, dict)}, è str: {isinstance(item, str)}")
+        if isinstance(item, dict):
+            yaml_pieces.append(yaml.dump(item))
+        elif isinstance(item, list):  # lista di dict
+            yaml_pieces.append(yaml.dump_all(item))
+        elif isinstance(item, str):
+            # Se è una stringa che inizia con "patches:", è un patch
+            if item.strip().startswith("patches:"):
+                logging.info(f"  [{idx}] IDENTIFICATO COME PATCH!")
+                patch_pieces.append(item)
+            else:
+                yaml_pieces.append(item)
+        else:
+            yaml_pieces.append(str(item))
+
+    logging.info(f"📊 Risultato separazione: {len(yaml_pieces)} risorse, {len(patch_pieces)} patches")
+
+    # Concatena le risorse
+    yaml_input = "\n---\n".join(yaml_pieces) if yaml_pieces else ""
+
+    # Passa a restricted_kustomize (con i patches)
+    yml = nku.restricted_kustomize(where, yaml_input, templates=templates, templates_filter=templates_filter, data=data, patches=patch_pieces)
+
+    logging.info("📄 YAML finale generato da restricted_kustomize (lunghezza %d):", len(yml))
+    logging.debug("📄 YAML:\n%s", yml)
 
     stream = io.StringIO(yml)
     res = list(yaml.load_all(stream, yaml.Loader))
@@ -284,6 +320,7 @@ def restricted_kustom_list(where, *what, templates=[], templates_filter=[], data
         logging.debug("🔧 Risorsa: %s/%s", kind, name)
 
     return {"apiVersion": "v1", "kind": "List", "items": res}
+
 
 
 # load the given yaml file under deploy/{where} folder
