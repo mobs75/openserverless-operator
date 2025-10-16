@@ -35,14 +35,18 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 def update_templated_doc(db, database, template, data):
-    #tpl = env.get_template(template)
-    #doc = json.loads(tpl.render(data))
-    #return db.update_doc(database, doc)
-
-    tpl = env.get_template("couchdb-init.yaml")
+    tpl = env.get_template(template)
     rendered = tpl.render(data)
-    logging.info("🧪 TEMPLATE RENDERED:\n", rendered)
+    logging.info(f"🧪 TEMPLATE RENDERED for {template}:\n{rendered}")
     doc = json.loads(rendered)
+
+    # Salva il documento nel database
+    result = db.update_doc(database, doc)
+    if result:
+        logging.info(f"✅ Documento {doc.get('_id', 'unknown')} salvato con successo in {database}")
+    else:
+        logging.error(f"❌ Fallito salvataggio documento in {database}")
+    return result
 
 
 
@@ -59,6 +63,7 @@ def create(owner=None):
     runtime = cfg.get('nuvolaris.kube')
     u = cfg.get('couchdb.admin.user', "COUCHDB_ADMIN_USER", "whisk_admin")
     p = cfg.get('couchdb.admin.password', "COUCHDB_ADMIN_PASSWORD", "some_passw0rd")
+
     user = f"db_username={u}"
     pasw = f"db_password={p}"
 
@@ -127,25 +132,37 @@ def create(owner=None):
     kus.processTemplate("couchdb", "couchdb-set-tpl.yaml", data, "couchdb-set_generated.yaml")
     gen_file_path = "deploy/couchdb/couchdb-set_generated.yaml"
     exists = os.path.exists(gen_file_path)
+
     logging.info("🧪 File generato: %s esiste? %s", gen_file_path, exists)
 
-    kust = kus.secretLiteral("couchdb-auth", user, pasw)
-    kust += kus.patchTemplates("couchdb", tplp, data)
+    secret = kus.secretLiteral("couchdb-auth", user, pasw, force_name="couchdb-auth")
+    # Aggiungi namespace al secret
+    secret["metadata"]["namespace"] = "nuvolaris"
+
+    kust = [secret]
+    # Usa append invece di extend per non appiattire la stringa in caratteri
+    patches_str = kus.patchTemplates("couchdb", tplp, data)
+    if patches_str:
+        kust.append(patches_str)
 
     logging.info("📋 Config completa passata a NUVOLARIS_CONFIG:")
     logging.info(json.dumps(cfg.getall(), indent=2))
 
+    from nuvolaris.template import spool_template
+
+    spool_template("couchdb-init.yaml", "deploy/couchdb/__couchdb-init.yaml", data)
+    spool_template("couchdb-svc.yaml", "deploy/couchdb/__couchdb-svc.yaml", data)
+
+    logging.info("🔍 DEBUG kust prima di passarlo: %s", kust)
+    logging.info("🔍 DEBUG tipo di kust: %s, lunghezza: %d", type(kust).__name__, len(kust))
+
     spec = kus.restricted_kustom_list(
         "couchdb",
-        kust,
-        templates=[
-            "couchdb-init.yaml",
-            "couchdb-svc.yaml"
-        ],
+        *kust,
         templates_filter=[
             "couchdb-set_generated.yaml",
-            "couchdb-init.yaml",
-            "couchdb-svc.yaml"
+            "__couchdb-init.yaml",
+            "__couchdb-svc.yaml"
         ],
         data=data
     )

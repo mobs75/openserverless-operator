@@ -37,7 +37,9 @@ spec:
       resources:
         requests:
           storage: {{size}}Gi
+{% if storageClass %}
       storageClassName: {{storageClass}}
+{% endif %}
 {% if hostpath %}
       volumeName: {{name}}-pv
 {% endif %}
