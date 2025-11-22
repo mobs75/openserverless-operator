@@ -42,14 +42,15 @@ def get_spark_config_data():
         
         # Master configuration
         "master_replicas": cfg.get('spark.master.replicas', defval=1),
-        "master_memory": cfg.get('spark.master.memory', defval='1g'),
+        "master_memory": cfg.get('spark.master.memory', defval='1Gi'),
+        "master_memory_jvm": _convert_k8s_memory_to_jvm(cfg.get('spark.master.memory', defval='1Gi')),
         "master_cpu": cfg.get('spark.master.cpu', defval='1000m'),
         "master_port": cfg.get('spark.master.port', defval=7077),
         "master_webui_port": cfg.get('spark.master.webui-port', defval=8080),
         
         # Worker configuration
-        "worker_replicas": cfg.get('spark.worker.replicas', defval=2),
-        "worker_memory": cfg.get('spark.worker.memory', defval='2g'),
+        "worker_memory": cfg.get('spark.worker.memory', defval='2Gi'),
+        "worker_memory_jvm": _convert_k8s_memory_to_jvm(cfg.get('spark.worker.memory', defval='2Gi')),
         "worker_cpu": cfg.get('spark.worker.cpu', defval='2000m'),
         "worker_cores": cfg.get('spark.worker.cores', defval=2),
         "worker_webui_port": cfg.get('spark.worker.webui-port', defval=8081),
@@ -116,7 +117,7 @@ def create(owner=None):
         kus.processTemplate("spark", "spark-history-dep-tpl.yaml", data, "spark-history-dep.yaml")
     
     # 3. Define kustomize patches (standard pattern)
-    tplp = ["set-attach.yaml"]
+    tplp = []
     
     # 4. Add affinity/tolerations if enabled (standard pattern)
     if data.get('affinity') or data.get('tolerations'):
@@ -126,8 +127,8 @@ def create(owner=None):
     kust = kus.patchTemplates("spark", tplp, data)
     
     # 6. Build complete specification using standard OpenServerless pattern
-    templates = ["spark-rbac.yaml"]  # Static Jinja2 templates to include
-    templates_filter = ["spark-configmap.yaml", "spark-master-sts.yaml"]  # Generated templates to filter
+    templates = []  # Static non-Jinja2 templates to include
+    templates_filter = ["spark-rbac.yaml", "spark-configmap.yaml", "spark-master-sts.yaml"]  # Generated templates to filter
     
     if data['history_enabled']:
         templates_filter.extend(["spark-history-pvc.yaml", "spark-history-dep.yaml"])
@@ -150,7 +151,7 @@ def create(owner=None):
     logging.info("waiting for spark master to be ready...")
     util.wait_for_pod_ready(
         "{.items[?(@.metadata.labels.component == 'spark-master')].metadata.name}",
-        timeout=300
+        timeout="300s"
     )
     logging.info("spark master is ready")
     
@@ -512,7 +513,7 @@ def _validate_sparkjob_spec(spec, job_name):
             'executor': {
                 'instances': 2,
                 'cores': 1, 
-                'memory': '1g'
+                'memory': '1Gi'
             }
         },
         'execution': {
@@ -566,7 +567,7 @@ def _validate_sparkjob_spec(spec, job_name):
 
 def _convert_k8s_memory_to_jvm(k8s_memory):
     """
-    Convert Kubernetes memory format (like '1Gi') to JVM format (like '1g')
+    Convert Kubernetes memory format (like '1Gi') to JVM format (like '1Gi')
     """
     if k8s_memory.endswith('Gi'):
         return k8s_memory[:-2] + 'g'

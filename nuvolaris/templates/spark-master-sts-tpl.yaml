@@ -66,7 +66,7 @@ spec:
         - name: SPARK_MASTER_WEBUI_PORT
           value: "{{master_webui_port}}"
         - name: SPARK_DAEMON_MEMORY
-          value: "{{master_memory}}"
+          value: "{{master_memory_jvm}}"
         - name: SPARK_NO_DAEMONIZE
           value: "true"
         resources:

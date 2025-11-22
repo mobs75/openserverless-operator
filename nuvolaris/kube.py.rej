@@ -1,0 +1,16 @@
+--- nuvolaris/kube.py
++++ nuvolaris/kube.py
+@@ -118,7 +118,12 @@ def flatten(data):
+ # apply an object
+ def apply(obj, namespace="nuvolaris"):
+     if not isinstance(obj, str):
+-        obj = yaml.dump(obj, default_flow_style=False, sort_keys=False)
++        # Use SafeDumper and ensure strings are quoted
++        class LiteralStr(str): pass
++        def literal_str_representer(dumper, data):
++            return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='')
++        yaml.add_representer(LiteralStr, literal_str_representer, Dumper=yaml.SafeDumper)
++        obj = yaml.dump(obj, Dumper=yaml.SafeDumper, default_flow_style=False, sort_keys=False, allow_unicode=True)
+     return kubectl("apply", "-f", "-", namespace=namespace, input=obj)
+ # apply an expanded template
+ def applyTemplate(name, data, namespace="nuvolaris"):

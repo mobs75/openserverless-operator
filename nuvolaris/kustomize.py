@@ -249,7 +249,7 @@ def kustom_list(where, *what, templates=[], data={}):
   """
   yml = nku.kustomize(where, *what, templates=templates, data=data)
   stream = io.StringIO(yml)
-  res = list(yaml.load_all(stream, yaml.Loader))
+  res = list(yaml.load_all(stream, yaml.SafeLoader))
   return {"apiVersion": "v1", "kind": "List", "items": res }
 
 
@@ -267,13 +267,13 @@ def restricted_kustom_list(where, *what, templates=[], templates_filter=[], data
   """
   yml = nku.restricted_kustomize(where, *what, templates=templates, templates_filter=templates_filter,data=data)
   stream = io.StringIO(yml)
-  res = list(yaml.load_all(stream, yaml.Loader))
+  res = list(yaml.load_all(stream, yaml.SafeLoader))
   return {"apiVersion": "v1", "kind": "List", "items": res }
 
 # load the given yaml file under deploy/{where} folder
 def raw(where, yamlfile):
   with open(f"deploy/{where}/{yamlfile}", 'r') as f:
-    return list(yaml.load_all(f, yaml.Loader))
+    return list(yaml.load_all(f, yaml.SafeLoader))
 
 def processTemplate(where,template,data,out_template=None):
     """
@@ -286,7 +286,7 @@ def processTemplate(where,template,data,out_template=None):
 
     ntp.spool_template(template, out, data)
     with open(out, 'r') as f:
-      res = list(yaml.load_all(f, yaml.Loader))
+      res = list(yaml.load_all(f, yaml.SafeLoader))
       return {"apiVersion": "v1", "kind": "List", "items": res }
 
 def renderTemplate(where,template,data,out_template):
