@@ -75,7 +75,7 @@ spec:
             memory: 512Mi
           limits:
             cpu: {{master_cpu}}
-            memory: {{master_memory}}
+            memory: {{master_memory | upper}}
         volumeMounts:
         - name: spark-config
           mountPath: /etc/spark-config
