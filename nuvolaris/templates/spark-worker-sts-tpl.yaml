@@ -70,7 +70,7 @@ spec:
             memory: 1Gi
           limits:
             cpu: {{worker_cpu}}
-            memory: {{worker_memory}}
+            memory: {{worker_memory | upper}}
         volumeMounts:
         - name: spark-config
           mountPath: /etc/spark-config
