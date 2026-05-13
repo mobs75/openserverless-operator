@@ -48,7 +48,7 @@ def get_spark_config_data():
         "master_webui_port": cfg.get('spark.master.webui-port', defval=8080),
         
         # Worker configuration
-        "worker_replicas": cfg.get('spark.worker.replicas', defval=2),
+        "worker_replicas": cfg.get('spark.worker.replicas', defval=3),
         "worker_memory": cfg.get('spark.worker.memory', defval='2g'),
         "worker_cpu": cfg.get('spark.worker.cpu', defval='2000m'),
         "worker_cores": cfg.get('spark.worker.cores', defval=2),
