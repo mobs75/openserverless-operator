@@ -76,6 +76,7 @@ def get_spark_config_data():
         # Security (standard pattern)
         "spark_user": cfg.get('spark.user', defval='spark'),
         "spark_uid": cfg.get('spark.uid', defval=185),
+        "pvc_access_mode": cfg.get('spark.pvc-access-mode', defval='ReadWriteOnce'),
     }
     
     # Add standard OpenServerless affinity/tolerations data
@@ -109,6 +110,7 @@ def create(owner=None):
     # 2. Process Jinja2 templates (standard OpenServerless pattern)
     kus.processTemplate("spark", "spark-configmap-tpl.yaml", data, "spark-configmap.yaml")
     kus.processTemplate("spark", "spark-master-sts-tpl.yaml", data, "spark-master-sts.yaml")
+    kus.processTemplate("spark", "spark-worker-sts-tpl.yaml", data, "spark-worker-sts.yaml")
     
     # Process History Server templates if enabled
     if data['history_enabled']:
@@ -116,24 +118,25 @@ def create(owner=None):
         kus.processTemplate("spark", "spark-history-dep-tpl.yaml", data, "spark-history-dep.yaml")
     
     # 3. Define kustomize patches (standard pattern)
-    tplp = ["set-attach.yaml"]
+    tplp = []
     
     # 4. Add affinity/tolerations if enabled (standard pattern)
     if data.get('affinity') or data.get('tolerations'):
         tplp.append("affinity-tolerance-sts-core-attach.yaml")
     
     # 5. Generate kustomization
-    kust = kus.patchTemplates("spark", tplp, data)
+    kust = kus.patchTemplates("spark", tplp, data) if tplp else ""
     
     # 6. Build complete specification using standard OpenServerless pattern
     templates = ["spark-rbac.yaml"]  # Static Jinja2 templates to include
-    templates_filter = ["spark-configmap.yaml", "spark-master-sts.yaml"]  # Generated templates to filter
+    templates_filter = ["spark-configmap.yaml", "spark-master-sts.yaml", "spark-worker-sts.yaml"]  # Generated templates to filter
     
     if data['history_enabled']:
         templates_filter.extend(["spark-history-pvc.yaml", "spark-history-dep.yaml"])
     
     spec = kus.restricted_kustom_list("spark", kust, templates=templates, 
                                      templates_filter=templates_filter, data=data)
+    logging.info(f"*** spark spec items: {len(spec["items"])}, kust={kust}")
     
     # 7. Apply owner reference for garbage collection  
     if owner:
@@ -322,7 +325,7 @@ def scale_workers(replicas):
     """
     logging.info(f"scaling spark workers to {replicas} replicas")
     
-    namespace = cfg.get('nuvolaris.namespace', default='nuvolaris')
+    namespace = cfg.get('nuvolaris.namespace', defval='nuvolaris')
     
     result = subprocess.run(
         ['kubectl', 'scale', 'statefulset', 'spark-worker',
@@ -346,7 +349,7 @@ def get_cluster_info():
     Returns:
         Dict with cluster status and metrics
     """
-    namespace = cfg.get('nuvolaris.namespace', default='nuvolaris')
+    namespace = cfg.get('nuvolaris.namespace', defval='nuvolaris')
     
     try:
         # Get master info
