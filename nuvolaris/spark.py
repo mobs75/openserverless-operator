@@ -111,6 +111,7 @@ def create(owner=None):
     kus.processTemplate("spark", "spark-configmap-tpl.yaml", data, "spark-configmap.yaml")
     kus.processTemplate("spark", "spark-master-sts-tpl.yaml", data, "spark-master-sts.yaml")
     kus.processTemplate("spark", "spark-worker-sts-tpl.yaml", data, "spark-worker-sts.yaml")
+    kus.processTemplate("spark", "spark-nginx-proxy-tpl.yaml", data, "spark-nginx-proxy.yaml")
     
     # Process History Server templates if enabled
     if data['history_enabled']:
@@ -129,7 +130,7 @@ def create(owner=None):
     
     # 6. Build complete specification using standard OpenServerless pattern
     templates = ["spark-rbac.yaml"]  # Static Jinja2 templates to include
-    templates_filter = ["spark-configmap.yaml", "spark-master-sts.yaml", "spark-worker-sts.yaml", "04-spark-master-svc.yaml", "06-spark-worker-svc.yaml", "08-spark-history-svc.yaml"]  # Generated templates to filter
+    templates_filter = ["spark-configmap.yaml", "spark-master-sts.yaml", "spark-worker-sts.yaml", "04-spark-master-svc.yaml", "06-spark-worker-svc.yaml", "08-spark-history-svc.yaml", "spark-nginx-proxy.yaml"]  # Generated templates to filter
     
     if data['history_enabled']:
         templates_filter.extend(["spark-history-pvc.yaml", "spark-history-dep.yaml"])
