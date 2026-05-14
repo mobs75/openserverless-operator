@@ -7,7 +7,6 @@ data:
   nginx.conf: |
     events { worker_connections 1024; }
     http {
-      resolver kube-dns.kube-system.svc.cluster.local valid=5s;
       server {
         listen 8080;
         location / {
@@ -20,7 +19,9 @@ data:
         }
         {% for i in range(worker_replicas) %}
         location /worker-{{i}}/ {
-          proxy_pass http://spark-worker-{{i}}.spark-worker.{{namespace}}.svc.cluster.local:8081/;
+          resolver kube-dns.kube-system.svc.cluster.local valid=30s;
+          set $backend_{{i}} "spark-worker-{{i}}.spark-worker.{{namespace}}.svc.cluster.local:8081";
+          proxy_pass http://$backend_{{i}}/;
         }
         {% endfor %}
       }
