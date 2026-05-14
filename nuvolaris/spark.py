@@ -154,7 +154,7 @@ def create(owner=None):
     logging.info("waiting for spark master to be ready...")
     util.wait_for_pod_ready(
         "{.items[?(@.metadata.labels.component == 'spark-master')].metadata.name}",
-        timeout=300
+        timeout="300s"
     )
     logging.info("spark master is ready")
     
