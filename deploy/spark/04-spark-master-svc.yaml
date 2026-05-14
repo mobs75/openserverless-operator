@@ -21,4 +21,22 @@ spec:
       port: 8080
       targetPort: 8080
       nodePort: 30808
+      protocol: TCP---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-master-headless
+  namespace: nuvolaris
+  labels:
+    app: spark
+    component: spark-master
+spec:
+  clusterIP: None
+  selector:
+    app: spark
+    component: spark-master
+  ports:
+    - name: master
+      port: 7077
+      targetPort: 7077
       protocol: TCP
