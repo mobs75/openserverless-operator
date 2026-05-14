@@ -112,6 +112,7 @@ def evaluate_differences(response: dict, differences: list):
         check_component(response, d,"spec.components.seaweedfs","seaweedfs")
         openwhisk(response, d)           
         endpoint(response, d)
+        check_spec_update(response, d,"spec.spark","spark")
         check_minio_ingresses(response, d)
         check_seaweedfs_ingresses(response, d)
         
