@@ -50,6 +50,7 @@ def get_spark_config_data():
         # Worker configuration
         "worker_replicas": cfg.get('spark.worker.replicas', defval=3),
         "worker_memory": cfg.get('spark.worker.memory', defval='2g'),
+        "worker_container_memory": cfg.get('spark.worker.container-memory', defval='3Gi'),
         "worker_cpu": cfg.get('spark.worker.cpu', defval='2000m'),
         "worker_cores": cfg.get('spark.worker.cores', defval=2),
         "worker_webui_port": cfg.get('spark.worker.webui-port', defval=8081),
@@ -604,49 +605,55 @@ def _create_spark_driver_job(job_config, job_name, namespace):
     # Build spark-submit command with JVM-compatible memory formats
     jvm_driver_memory = _convert_k8s_memory_to_jvm(spark['driver']['memory'])
     jvm_executor_memory = _convert_k8s_memory_to_jvm(spark['executor']['memory'])
-    
-    submit_cmd = [
+
+    # Build spark-submit flags as a shell string so $MY_POD_IP is expanded at runtime
+    submit_parts = [
         '/opt/spark/bin/spark-submit',
         '--master', spark['master'],
         '--name', job_name,
         '--driver-cores', str(spark['driver']['cores']),
         '--driver-memory', jvm_driver_memory,
         '--num-executors', str(spark['executor']['instances']),
-        '--executor-cores', str(spark['executor']['cores']), 
+        '--executor-cores', str(spark['executor']['cores']),
         '--executor-memory', jvm_executor_memory,
-        '--deploy-mode', 'client'  # Client mode for Kubernetes Jobs
+        '--deploy-mode', 'client',
+        # Expose pod IP so executors can connect back to the driver
+        '--conf', 'spark.driver.bindAddress=0.0.0.0',
+        '--conf', 'spark.driver.host=$MY_POD_IP',
     ]
-    
-    # Add Spark configuration
+
+    # Add user-provided Spark configuration
     for key, value in spark['conf'].items():
-        submit_cmd.extend(['--conf', f'{key}={value}'])
-    
+        submit_parts.extend(['--conf', f'{key}={value}'])
+
     # Add event logging configuration if enabled
     if monitoring['eventLog']:
-        submit_cmd.extend([
+        submit_parts.extend([
             '--conf', 'spark.eventLog.enabled=true',
             '--conf', 'spark.eventLog.dir=/tmp/spark-events'
         ])
-    
+
     # Add dependencies
     if deps['jars']:
-        submit_cmd.extend(['--jars', ','.join(deps['jars'])])
+        submit_parts.extend(['--jars', ','.join(deps['jars'])])
     if deps['files']:
-        submit_cmd.extend(['--files', ','.join(deps['files'])])
+        submit_parts.extend(['--files', ','.join(deps['files'])])
     if deps['pyFiles']:
-        submit_cmd.extend(['--py-files', ','.join(deps['pyFiles'])])
-    
+        submit_parts.extend(['--py-files', ','.join(deps['pyFiles'])])
+
     # Add main class if specified (for Java/Scala) - MUST come before JAR file
     if app.get('mainClass'):
-        submit_cmd.extend(['--class', app['mainClass']])
-    
-    # Add main application file
-    submit_cmd.append(app['mainApplicationFile'])
-    
-    # Add application arguments
+        submit_parts.extend(['--class', app['mainClass']])
+
+    # Add main application file and arguments
+    submit_parts.append(app['mainApplicationFile'])
     if app.get('arguments'):
-        submit_cmd.extend(app['arguments'])
-    
+        submit_parts.extend(app['arguments'])
+
+    # Wrap in bash so $MY_POD_IP expands correctly
+    submit_script = ' '.join(f"'{p}'" if p.startswith('--') or not p.startswith('$') else p for p in submit_parts)
+    submit_script = ' '.join(submit_parts)
+
     # Create Job specification
     job_spec = {
         'apiVersion': 'batch/v1',
@@ -667,7 +674,7 @@ def _create_spark_driver_job(job_config, job_name, namespace):
                 'metadata': {
                     'labels': {
                         'app': 'spark',
-                        'component': 'driver', 
+                        'component': 'driver',
                         'sparkjob': job_name
                     }
                 },
@@ -677,10 +684,14 @@ def _create_spark_driver_job(job_config, job_name, namespace):
                     'containers': [{
                         'name': 'spark-driver',
                         'image': cfg.get('spark.image', defval='apache/spark:3.5.0'),
-                        'command': submit_cmd,
+                        'command': ['/bin/bash', '-c'],
+                        'args': [submit_script],
                         'env': [
                             {'name': 'SPARK_USER', 'value': 'spark'},
-                            {'name': 'SPARK_APPLICATION_ID', 'value': job_name}
+                            {'name': 'SPARK_APPLICATION_ID', 'value': job_name},
+                            {'name': 'MY_POD_IP', 'valueFrom': {
+                                'fieldRef': {'fieldPath': 'status.podIP'}
+                            }}
                         ],
                         'resources': {
                             'requests': {

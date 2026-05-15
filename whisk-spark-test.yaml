@@ -102,11 +102,16 @@ spec:
     nuvolaris:
       password: s0meP@ass3
   spark:
-    master-cores: 1
-    master-memory: 512m
-    worker-cores: 1
-    worker-memory: 512m
-    driver-memory: 512m
-    executor-cores: 1
-    executor-memory: 512m
-    history-enabled: true
+    image: apache/spark:3.5.0
+    master:
+      replicas: 1
+      memory: 512m
+      cpu: 1000m
+    worker:
+      replicas: 3
+      memory: 768m
+      container-memory: 1Gi
+      cpu: 1000m
+      cores: 1
+    history-server:
+      enabled: true

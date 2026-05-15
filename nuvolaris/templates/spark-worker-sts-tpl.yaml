@@ -71,10 +71,10 @@ spec:
         resources:
           requests:
             cpu: 500m
-            memory: {{worker_memory | upper}}
+            memory: {{worker_container_memory}}
           limits:
             cpu: {{worker_cpu}}
-            memory: {{worker_memory | upper}}
+            memory: {{worker_container_memory}}
         volumeMounts:
         - name: spark-config
           mountPath: /etc/spark-config
