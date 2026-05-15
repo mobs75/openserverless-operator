@@ -14,7 +14,7 @@ data:
           proxy_set_header Accept-Encoding "";
           sub_filter_once off;
           {% for i in range(worker_replicas) %}
-          sub_filter 'href="http://spark-worker-{{i}}:8081"' 'href="/worker-{{i}}/"';
+          sub_filter 'href="http://spark-worker-{{i}}:{{worker_webui_port}}"' 'href="/worker-{{i}}/"';
           {% endfor %}
         }
         {% for i in range(worker_replicas) %}

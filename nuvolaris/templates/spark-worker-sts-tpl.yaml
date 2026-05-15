@@ -65,7 +65,9 @@ spec:
         - name: SPARK_NO_DAEMONIZE
           value: "true"
         - name: SPARK_PUBLIC_DNS
-          value: "spark.local"
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         resources:
           requests:
             cpu: 500m
