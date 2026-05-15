@@ -72,7 +72,7 @@ spec:
         resources:
           requests:
             cpu: 200m
-            memory: 512Mi
+            memory: {{master_memory | upper}}
           limits:
             cpu: {{master_cpu}}
             memory: {{master_memory | upper}}

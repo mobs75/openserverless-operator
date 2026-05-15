@@ -8,7 +8,7 @@ metadata:
     component: spark-history
 spec:
   accessModes:
-    - ReadWriteOnce
+    - {{pvc_access_mode}}
   {% if storage_class %}
   storageClassName: {{storage_class}}
   {% endif %}

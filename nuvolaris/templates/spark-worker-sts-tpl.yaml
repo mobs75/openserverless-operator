@@ -64,10 +64,12 @@ spec:
           value: "{{worker_memory}}"
         - name: SPARK_NO_DAEMONIZE
           value: "true"
+        - name: SPARK_PUBLIC_DNS
+          value: "spark.local"
         resources:
           requests:
             cpu: 500m
-            memory: 1Gi
+            memory: {{worker_memory | upper}}
           limits:
             cpu: {{worker_cpu}}
             memory: {{worker_memory | upper}}
