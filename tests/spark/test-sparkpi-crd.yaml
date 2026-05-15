@@ -1,0 +1,54 @@
+# Test: SparkPi tramite SparkJob CRD (gestito dall'operator)
+#
+# Invia un job Spark tramite la Custom Resource Definition SparkJob.
+# L'operatore crea automaticamente un Kubernetes Job per il driver,
+# con bash wrapper e spark.driver.host iniettato via Downward API
+# (pod IP), così gli executor possono connetersi al driver.
+#
+# Requisiti:
+#   - Operator nuvolaris in esecuzione con supporto SparkJob
+#   - Cluster Spark attivo (spark-master, 3 worker con 1Gi memory limit)
+#   - ServiceAccount 'spark' nel namespace nuvolaris
+#
+# Esecuzione:
+#   kubectl apply -f tests/spark/test-sparkpi-crd.yaml
+#   kubectl logs -n nuvolaris -l job-name=pi-crd-test-driver -f
+#   # Atteso: "Pi is roughly 3.14..."
+#
+# Pulizia:
+#   kubectl delete sparkjob pi-crd-test -n nuvolaris
+#   kubectl delete job pi-crd-test-driver -n nuvolaris --ignore-not-found
+apiVersion: nuvolaris.org/v1
+kind: SparkJob
+metadata:
+  name: pi-crd-test
+  namespace: nuvolaris
+spec:
+  application:
+    mainClass: org.apache.spark.examples.SparkPi
+    mainApplicationFile: local:///opt/spark/examples/jars/spark-examples_2.12-3.5.0.jar
+    arguments:
+      - "10"
+    source:
+      # source.url non viene scaricato; mainApplicationFile è già nell'immagine Spark
+      type: url
+      url: local:///opt/spark/examples/jars/spark-examples_2.12-3.5.0.jar
+  spark:
+    master: spark://spark-master:7077
+    conf: {}
+    driver:
+      cores: 1
+      memory: 1Gi
+      serviceAccount: spark
+    executor:
+      instances: 2
+      cores: 1
+      memory: 512m
+  execution:
+    restartPolicy: Never
+    timeout: 300
+    backoffLimit: 0
+  monitoring:
+    enabled: false
+    eventLog: false
+    historyServer: false

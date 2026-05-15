@@ -1,0 +1,57 @@
+# Test: SparkPi via spark-submit classico (Kubernetes Job)
+#
+# Esegue il calcolo di Pi con 5 partizioni usando spark-submit in
+# client mode da un pod dedicato con 1Gi di memoria.
+#
+# Requisiti:
+#   - Cluster Spark attivo (spark-master, 3 worker con 1Gi memory limit)
+#   - ServiceAccount 'spark' nel namespace nuvolaris
+#
+# Esecuzione:
+#   kubectl apply -f tests/spark/test-sparkpi-submit.yaml
+#   kubectl logs -n nuvolaris -l job-name=spark-pi-submit-test
+#   # Atteso: "Pi is roughly 3.14..."
+#
+# Pulizia:
+#   kubectl delete -f tests/spark/test-sparkpi-submit.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-pi-submit-test
+  namespace: nuvolaris
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+      - name: spark-submit
+        image: apache/spark:3.5.0
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+        env:
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          /opt/spark/bin/spark-submit \
+            --master spark://spark-master:7077 \
+            --deploy-mode client \
+            --name pi-submit-test \
+            --driver-memory 512m \
+            --executor-memory 512m \
+            --executor-cores 1 \
+            --num-executors 2 \
+            --conf spark.driver.bindAddress=0.0.0.0 \
+            --conf spark.driver.host=$MY_POD_IP \
+            --class org.apache.spark.examples.SparkPi \
+            /opt/spark/examples/jars/spark-examples_2.12-3.5.0.jar 5
