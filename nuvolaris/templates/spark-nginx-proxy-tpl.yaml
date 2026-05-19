@@ -23,6 +23,12 @@ data:
           resolver kube-dns.kube-system.svc.cluster.local valid=30s;
           set $backend_{{i}} "spark-worker-{{i}}.spark-worker.{{namespace}}.svc.cluster.local:8081";
           proxy_pass http://$backend_{{i}}/;
+          proxy_set_header Accept-Encoding "";
+          sub_filter_once off;
+          sub_filter 'href="http://spark-worker-{{i}}:{{worker_webui_port}}"' 'href="/worker-{{i}}/"';
+          sub_filter 'href="http://spark-worker-{{i}}:{{worker_webui_port}}/' 'href="/worker-{{i}}/';
+          sub_filter 'href="http://0.0.0.0:8080/"' 'href="/';
+          sub_filter 'href="http://0.0.0.0:8080"' 'href="/';
         }
         {% endfor %}
       }
