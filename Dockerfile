@@ -20,7 +20,9 @@
 FROM python:3.12-slim-bullseye AS sources
 
 RUN groupadd --gid 1001 nuvolaris && \
-    useradd -m nuvolaris -s /bin/bash --uid 1001 --gid 1001 --groups root
+    useradd -m nuvolaris -s /bin/bash --uid 1001 --gid 1001 --groups root && \
+    mkdir -p /home/nuvolaris/deploy && \
+    chown nuvolaris:nuvolaris /home/nuvolaris/deploy
 
 USER nuvolaris
 WORKDIR /home/nuvolaris
