@@ -69,6 +69,8 @@ spec:
           value: "{{master_memory}}"
         - name: SPARK_NO_DAEMONIZE
           value: "true"
+        - name: SPARK_CONF_DIR
+          value: "/etc/spark-config"
         resources:
           requests:
             cpu: 200m
