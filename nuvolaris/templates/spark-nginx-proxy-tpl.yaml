@@ -47,7 +47,7 @@ data:
           proxy_set_header Accept-Encoding "";
         }
         location ~ ^/history/history/(.*)$ {
-          return 302 /history/$1$is_args$args;
+          return 302 $scheme://$http_host/history/$1$is_args$args;
         }
         location = /history/ {
           resolver kube-dns.kube-system.svc.cluster.local valid=30s;
@@ -61,6 +61,7 @@ data:
           sub_filter "setUIRoot('')" "setUIRoot('/history')";
           sub_filter 'href="/"' 'href="/history/"';
           sub_filter 'href="/?' 'href="/history/?';
+          sub_filter 'spark.local:8080' 'spark.local:32080';
         }
         location /history/ {
           resolver kube-dns.kube-system.svc.cluster.local valid=30s;
@@ -72,6 +73,7 @@ data:
           sub_filter 'href="/static/' 'href="/history/static/';
           sub_filter 'src="/static/' 'src="/history/static/';
           sub_filter 'href="/"' 'href="/history/"';
+          sub_filter 'spark.local:8080' 'spark.local:32080';
         }
       }
     }
