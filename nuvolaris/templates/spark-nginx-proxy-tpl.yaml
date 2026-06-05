@@ -32,10 +32,27 @@ data:
           sub_filter 'href="http://0.0.0.0:8080"' 'href="/"';
         }
         {% endfor %}
-        location /history/ {
+        location /history/static/ {
           resolver kube-dns.kube-system.svc.cluster.local valid=30s;
           set $history "spark-history.{{namespace}}.svc.cluster.local:18080";
-          rewrite ^/history/(.*) /$1 break;
+          rewrite ^/history/static/(.*) /static/$1 break;
+          proxy_pass http://$history;
+          proxy_set_header Accept-Encoding "";
+        }
+        location /history/api/ {
+          resolver kube-dns.kube-system.svc.cluster.local valid=30s;
+          set $history "spark-history.{{namespace}}.svc.cluster.local:18080";
+          rewrite ^/history/api/(.*) /api/$1 break;
+          proxy_pass http://$history;
+          proxy_set_header Accept-Encoding "";
+        }
+        location ~ ^/history/history/(.*)$ {
+          return 302 /history/$1$is_args$args;
+        }
+        location = /history/ {
+          resolver kube-dns.kube-system.svc.cluster.local valid=30s;
+          set $history "spark-history.{{namespace}}.svc.cluster.local:18080";
+          rewrite .* / break;
           proxy_pass http://$history;
           proxy_set_header Accept-Encoding "";
           sub_filter_once off;
@@ -44,6 +61,17 @@ data:
           sub_filter "setUIRoot('')" "setUIRoot('/history')";
           sub_filter 'href="/"' 'href="/history/"';
           sub_filter 'href="/?' 'href="/history/?';
+        }
+        location /history/ {
+          resolver kube-dns.kube-system.svc.cluster.local valid=30s;
+          set $history "spark-history.{{namespace}}.svc.cluster.local:18080";
+          proxy_pass http://$history;
+          proxy_set_header Accept-Encoding "";
+          proxy_redirect http://spark-history.{{namespace}}.svc.cluster.local:18080 $scheme://$http_host;
+          sub_filter_once off;
+          sub_filter 'href="/static/' 'href="/history/static/';
+          sub_filter 'src="/static/' 'src="/history/static/';
+          sub_filter 'href="/"' 'href="/history/"';
         }
       }
     }
