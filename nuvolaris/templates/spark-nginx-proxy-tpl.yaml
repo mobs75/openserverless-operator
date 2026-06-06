@@ -30,6 +30,7 @@ data:
           sub_filter 'href="http://spark-worker-{{i}}:{{worker_webui_port}}/' 'href="/worker-{{i}}/';
           sub_filter 'href="http://0.0.0.0:8080/"' 'href="/"';
           sub_filter 'href="http://0.0.0.0:8080"' 'href="/"';
+          sub_filter 'href="http://spark-master-0.spark-master.{{namespace}}.svc.cluster.local:8080"' 'href="/"';
         }
         {% endfor %}
         location /history/static/ {
