@@ -162,6 +162,9 @@ def create(owner=None):
     # 10. Post-configuration
     configure_spark(data)
     
+    # 11. Deploy Watcher and Reconciler (R6.AC1)
+    recon_data = _get_reconciliation_config_data()
+    _deploy_reconciliation_components(owner, recon_data)
     logging.info("*** spark cluster created successfully")
     return res
 
@@ -853,3 +856,52 @@ def _kill_spark_application(app_id, namespace):
             
     except Exception as e:
         logging.warning(f"error killing Spark application {app_id}: {e}")
+
+
+def _get_reconciliation_config_data() -> dict:
+    """Collect configuration for Watcher and Reconciler Jinja2 templates."""
+    return {
+        "namespace": cfg.get('nuvolaris.namespace', defval='nuvolaris'),
+        "ows_secret_name": cfg.get('spark.ows-secret-name', defval='spark-ows-credentials'),
+        "reconciler_schedule": cfg.get('spark.reconciler.schedule', defval='*/5 * * * *'),
+        "watcher_replicas": cfg.get('spark.watcher.replicas', defval=1),
+        "spark_image": cfg.get('spark.image', defval='apache/spark:3.5.0'),
+        "couchdb_secret_name": cfg.get('spark.couchdb-secret-name', defval='spark-couchdb-credentials'),
+    }
+
+
+def _deploy_reconciliation_components(owner, data: dict) -> None:
+    """Render and apply Watcher Deployment and Reconciler CronJob."""
+    import yaml as _yaml
+    for template_name in [
+        "spark-watcher-deployment.yaml.j2",
+        "spark-reconciler-cronjob.yaml.j2",
+    ]:
+        rendered = ntp.expand_template(template_name, data)
+        resource = _yaml.safe_load(rendered)
+        if owner:
+            kopf.append_owner_reference([resource], owner)
+        try:
+            kube.apply(resource)
+            logging.info(f"applied {template_name}")
+        except Exception as exc:
+            logging.error(f"*** failed to apply {template_name}: {exc}")
+            raise
+
+
+def _delete_reconciliation_components(namespace: str) -> None:
+    """Remove Watcher Deployment and Reconciler CronJob."""
+    for kind, api_version, name in [
+        ("Deployment", "apps/v1", "spark-watcher"),
+        ("CronJob", "batch/v1", "spark-reconciler"),
+    ]:
+        resource = {
+            "apiVersion": api_version,
+            "kind": kind,
+            "metadata": {"name": name, "namespace": namespace},
+        }
+        try:
+            kube.delete(resource)
+            logging.info(f"deleted {kind}/{name}")
+        except Exception as exc:
+            logging.warning(f"*** failed to delete {kind}/{name}: {exc}")
