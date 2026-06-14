@@ -885,8 +885,11 @@ def _deploy_reconciliation_components(owner, data: dict) -> None:
             kube.apply(resource)
             logging.info(f"applied {template_name}")
         except Exception as exc:
-            logging.error(f"*** failed to apply {template_name}: {exc}")
-            raise
+            if "AlreadyExists" in str(exc):
+                logging.warning(f"resource already exists, skipping: {template_name}")
+            else:
+                logging.error(f"*** failed to apply {template_name}: {exc}")
+                raise
 
 
 def _delete_reconciliation_components(namespace: str) -> None:
