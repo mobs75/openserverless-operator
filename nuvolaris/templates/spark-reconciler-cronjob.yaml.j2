@@ -39,8 +39,8 @@ spec:
           serviceAccountName: nuvolaris-operator
           containers:
             - name: spark-reconciler
-              image: {{ spark_image }}
-              command: ["python", "-m", "nuvolaris.reconciler"]
+              image: {{ operator_image }}:{{ operator_tag }}
+              command: ["python3", "-m", "nuvolaris.reconciler"]
               envFrom:
                 - secretRef:
                     name: {{ ows_secret_name }}

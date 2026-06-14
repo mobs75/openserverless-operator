@@ -867,6 +867,8 @@ def _get_reconciliation_config_data() -> dict:
         "watcher_replicas": cfg.get('spark.watcher.replicas', defval=1),
         "spark_image": cfg.get('spark.image', defval='apache/spark:3.5.0'),
         "couchdb_secret_name": cfg.get('spark.couchdb-secret-name', defval='spark-couchdb-credentials'),
+        "operator_image": cfg.get('operator.image') or "missing-operator-image",
+        "operator_tag": cfg.get('operator.tag') or "missing-operator-tag",
     }
 
 

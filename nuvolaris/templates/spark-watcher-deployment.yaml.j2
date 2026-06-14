@@ -38,7 +38,7 @@ spec:
       serviceAccountName: nuvolaris-operator
       containers:
         - name: spark-watcher
-          image: {{ spark_image }}
+          image: {{ operator_image }}:{{ operator_tag }}
           command: ["python3", "-m", "nuvolaris.watcher"]
           envFrom:
             - secretRef:
