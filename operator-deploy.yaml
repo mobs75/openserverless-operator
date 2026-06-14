@@ -37,6 +37,10 @@ spec:
     env:
       - name: ENABLE_SPARK
         value: "true"
+      - name: OPERATOR_IMAGE
+        value: docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator
+      - name: OPERATOR_TAG
+        value: $TAG
     resources:
       requests:
         cpu: 100m
