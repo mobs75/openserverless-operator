@@ -39,7 +39,7 @@ spec:
       containers:
         - name: spark-watcher
           image: {{ spark_image }}
-          command: ["python", "-m", "nuvolaris.watcher"]
+          command: ["python3", "-m", "nuvolaris.watcher"]
           envFrom:
             - secretRef:
                 name: {{ ows_secret_name }}
