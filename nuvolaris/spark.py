@@ -870,8 +870,50 @@ def _get_reconciliation_config_data() -> dict:
     }
 
 
+def _create_reconciliation_secrets(namespace: str) -> None:
+    """Create OWS and CouchDB credential Secrets consumed by spark-watcher and spark-reconciler."""
+    couchdb_host = cfg.get("couchdb.host") or "couchdb"
+    couchdb_port = cfg.get("couchdb.port") or "5984"
+
+    secrets = [
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "type": "Opaque",
+            "metadata": {"name": cfg.get('spark.ows-secret-name', defval='spark-ows-credentials'), "namespace": namespace},
+            "stringData": {
+                "OWS_TRIGGER_URL": f"{cfg.get('config.apihost', defval='http://controller:3233')}/api/v1/namespaces/nuvolaris/triggers/spark-job-status",
+                "OWS_AUTH_TOKEN": cfg.get("openwhisk.namespaces.nuvolaris", defval=""),
+            },
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "type": "Opaque",
+            "metadata": {"name": cfg.get('spark.couchdb-secret-name', defval='spark-couchdb-credentials'), "namespace": namespace},
+            "stringData": {
+                "COUCHDB_URL": f"http://{couchdb_host}:{couchdb_port}",
+                "COUCHDB_USER": cfg.get("couchdb.admin.user") or "whisk_admin",
+                "COUCHDB_PASSWORD": cfg.get("couchdb.admin.password") or "",
+            },
+        },
+    ]
+    for secret in secrets:
+        name = secret["metadata"]["name"]
+        try:
+            kube.apply(secret)
+            logging.info(f"applied secret {name}")
+        except Exception as exc:
+            if "AlreadyExists" in str(exc):
+                logging.warning(f"secret already exists, skipping: {name}")
+            else:
+                logging.error(f"*** failed to apply secret {name}: {exc}")
+                raise
+
+
 def _deploy_reconciliation_components(owner, data: dict) -> None:
     """Render and apply Watcher Deployment and Reconciler CronJob."""
+    _create_reconciliation_secrets(data["namespace"])
     import yaml as _yaml
     for template_name in [
         "spark-watcher-deployment.yaml.j2",
