@@ -189,7 +189,7 @@ def delete(owner=None):
         spec = cfg.get("state.spark.spec")
     
     if spec:
-        res = kube.delete(spec)
+        res = kube.delete(spec, ignore_not_found=True)
         logging.info(f"deleted spark cluster: {res}")
         return res
     

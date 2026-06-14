@@ -101,10 +101,12 @@ data: {}
     return yaml.dump(out)
     
 # delete an object
-def delete(obj, namespace="nuvolaris"):
+def delete(obj, namespace="nuvolaris", ignore_not_found=False):
     # tested with apply
     if not isinstance(obj, str):
         obj = json.dumps(obj)
+    if ignore_not_found:
+        return kubectl("delete", "--ignore-not-found", "-f", "-", namespace=namespace, input=obj)
     return kubectl("delete", "-f", "-", namespace=namespace, input=obj)
 
 # shortcut
