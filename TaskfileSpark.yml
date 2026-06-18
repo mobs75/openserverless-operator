@@ -44,6 +44,8 @@ tasks:
       - kubectl -n nuvolaris apply -f _operator-deploy.yaml
       - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator --timeout=180s
       - kubectl -n nuvolaris get pod nuvolaris-operator -o wide
+      - kubectl rollout restart deployment/spark-watcher -n nuvolaris
+      - kubectl -n nuvolaris rollout status deployment/spark-watcher --timeout=60s
 
   standard:
     desc: build (kaniko) e deploy operatore con Spark + istanza whisk-spark
