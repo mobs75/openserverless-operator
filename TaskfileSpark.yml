@@ -51,7 +51,10 @@ tasks:
           --type=json \
           -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMG}\"}]"
       - kubectl -n nuvolaris delete pod nuvolaris-operator-0
-      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-0 --timeout=180s
+      - |
+        echo "→ Attendo che lo StatefulSet ricrei nuvolaris-operator-0..."
+        until kubectl -n nuvolaris get pod nuvolaris-operator-0 >/dev/null 2>&1; do sleep 2; done
+        kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-0 --timeout=180s
       - kubectl -n nuvolaris get pod nuvolaris-operator-0 -o wide
       - kubectl rollout restart deployment/spark-watcher -n nuvolaris
       - kubectl -n nuvolaris rollout status deployment/spark-watcher --timeout=60s
