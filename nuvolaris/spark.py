@@ -189,6 +189,8 @@ def delete(owner=None):
         spec = cfg.get("state.spark.spec")
     
     if spec:
+        spec['items'] = [item for item in spec.get('items', [])
+                         if item.get('kind') != 'PersistentVolumeClaim']
         res = kube.delete(spec, ignore_not_found=True)
         logging.info(f"deleted spark cluster: {res}")
         return res
