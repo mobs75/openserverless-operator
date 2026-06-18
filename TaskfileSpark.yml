@@ -36,14 +36,23 @@ tasks:
   # ── Build & Deploy ─────────────────────────────────────────────────────────
 
   rebuild-deploy:
-    desc: "kaniko-build + deploy + ricrea pod operator (ciclo completo di aggiornamento)"
+    desc: "kaniko-build + patch StatefulSet nuvolaris-operator + ricrea nuvolaris-operator-0"
     cmds:
       - task: :kaniko-build
-      - task: :deploy
-      - kubectl delete pod nuvolaris-operator -n nuvolaris
-      - kubectl -n nuvolaris apply -f _operator-deploy.yaml
-      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator --timeout=180s
-      - kubectl -n nuvolaris get pod nuvolaris-operator -o wide
+      # Il vero leader Kopf che gestisce i CRD (Whisk, SparkJob) è nuvolaris-operator-0,
+      # pod del StatefulSet nuvolaris-operator. Il bare pod nuvolaris-operator esiste ma
+      # cede la leadership all'istanza StatefulSet. Per attivare il nuovo codice buildato
+      # bisogna patchare l'immagine dello StatefulSet e ricreare nuvolaris-operator-0.
+      - |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo latest)
+        IMG="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator:${TAG}"
+        echo "→ Patch StatefulSet nuvolaris-operator con immagine: $IMG"
+        kubectl -n nuvolaris patch statefulset nuvolaris-operator \
+          --type=json \
+          -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMG}\"}]"
+      - kubectl -n nuvolaris delete pod nuvolaris-operator-0
+      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-0 --timeout=180s
+      - kubectl -n nuvolaris get pod nuvolaris-operator-0 -o wide
       - kubectl rollout restart deployment/spark-watcher -n nuvolaris
       - kubectl -n nuvolaris rollout status deployment/spark-watcher --timeout=60s
 
