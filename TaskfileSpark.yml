@@ -283,7 +283,7 @@ tasks:
     desc: "verifica se spark-watcher ha inviato eventi al trigger OWS spark-job-status"
     cmds:
       - echo "=== Log spark-watcher (fonte primaria) ==="
-      - kubectl -n nuvolaris logs deployment/spark-watcher --tail=50 | grep -iE "trigger|spark-job-status|OWS|POST|sent|error" || echo "Nessun evento trigger nei log watcher"
+      - kubectl -n nuvolaris logs deployment/spark-watcher --tail=50 | grep -iE "trigger|spark-job-status|OWS|POST|sent|error|notified|phase_updated|ows_delivered" || echo "Nessun evento trigger nei log watcher"
       - echo "=== Attivazioni OWS via CouchDB (opzionale) ==="
       - |
         COUCH_USER=$(kubectl -n nuvolaris get secret couchdb-auth -o jsonpath='{.data.adminUsername}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
