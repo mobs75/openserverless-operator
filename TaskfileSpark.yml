@@ -1,0 +1,284 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+version: '3'
+
+tasks:
+
+  # ── Cluster lifecycle ──────────────────────────────────────────────────────
+
+  cycle:
+    desc: "ciclo off→on Spark — spegne, attende 20s, riaccende, verifica PVC preservato"
+    cmds:
+      - echo "→ Spark OFF"
+      - kubectl patch whisk controller -n nuvolaris --type=merge -p '{"spec":{"components":{"spark":false}}}'
+      - sleep 20
+      - echo "→ Spark ON"
+      - kubectl patch whisk controller -n nuvolaris --type=merge -p '{"spec":{"components":{"spark":true}}}'
+      - sleep 10
+      - echo "→ Verifica PVC spark-history-pvc"
+      - kubectl -n nuvolaris get pvc spark-history-pvc
+
+  # ── Build & Deploy ─────────────────────────────────────────────────────────
+
+  rebuild-deploy:
+    desc: "kaniko-build + deploy + ricrea pod operator (ciclo completo di aggiornamento)"
+    cmds:
+      - task: :kaniko-build
+      - task: :deploy
+      - kubectl delete pod nuvolaris-operator -n nuvolaris
+      - kubectl -n nuvolaris apply -f _operator-deploy.yaml
+      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator --timeout=180s
+      - kubectl -n nuvolaris get pod nuvolaris-operator -o wide
+
+  standard:
+    desc: build (kaniko) e deploy operatore con Spark + istanza whisk-spark
+    env:
+      GITHUB_USER:
+        sh: if [ -n "$GITHUB_USER" ]; then echo "$GITHUB_USER"; else whoami; fi
+    cmds:
+      - |
+        if [ -n "$GHCR_USER" ] && [ -n "$GHCR_TOKEN" ]; then
+          echo "Rilevate credenziali GHCR: uso pipeline ghcr (build+push)";
+          export GHCR_USER GHCR_TOKEN
+          task spark-all-ghcr || { echo "Pipeline GHCR fallita"; exit 1; }
+          echo "Deployment GHCR completato, procedo con istanza Spark";
+          WHISK=whisk-spark task t:instance;
+          exit 0; # Evita esecuzione ramo interno registry
+        else
+          echo "Credenziali GHCR non presenti: uso percorso registry interno/kind";
+        fi
+      - |
+        if [ "$(./detect.sh)" = "kind" ]; then
+          echo "Cluster kind rilevato";
+          if command -v kind >/dev/null 2>&1; then
+            echo "kind CLI presente: uso build-and-load";
+            if ! task build-and-load MY_OPERATOR_IMAGE=docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator; then
+              echo "kind load fallita: fallback a Kaniko";
+              task install-registry || exit 1;
+              task tag-commit-push || true;
+              task kaniko-build-patched || exit 1;
+            fi
+          else
+            echo "kind CLI assente: provo installazione veloce";
+            curl -fsSL -o kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 && chmod +x kind && sudo mv kind /usr/local/bin/kind 2>/dev/null || mv kind "$HOME/.local/bin/kind" 2>/dev/null || true;
+            if command -v kind >/dev/null 2>&1; then
+              echo "Installazione kind riuscita: eseguo load";
+              if ! task build-and-load MY_OPERATOR_IMAGE=docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator; then
+                echo "kind load fallita dopo install: fallback a Kaniko";
+                task install-registry || exit 1;
+                task tag-commit-push || true;
+                task kaniko-build-patched || exit 1;
+              fi
+            else
+              echo "Installazione kind fallita: fallback a Kaniko";
+              task install-registry || exit 1;
+              task tag-commit-push || true;
+              task kaniko-build-patched || exit 1;
+            fi
+          fi
+        else
+          echo "Cluster $(./detect.sh): uso Kaniko";
+          task install-registry || exit 1;
+          task tag-commit-push || true;
+          task kaniko-build-patched || exit 1;
+        fi
+      - kubectl -n nuvolaris apply -f deploy/nuvolaris-permissions || true
+      - |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo latest)
+        REGISTRY_HOST="docker-registry.kube-system.svc.cluster.local:5000"
+        if [ "$(./detect.sh)" != "kind" ]; then
+          if kubectl -n kube-system get svc docker-registry-nodeport >/dev/null 2>&1; then
+            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+            if [ -n "$NODE_IP" ]; then
+              REGISTRY_HOST="${NODE_IP}:30500"
+              echo "Uso NodePort registry $REGISTRY_HOST per image pull"
+            fi
+          fi
+        fi
+        export TAG
+        export MY_OPERATOR_IMAGE=${REGISTRY_HOST}/$GITHUB_USER/openserverless-operator
+        if [ -n "$GHCR_USER" ] && [ -n "$GHCR_TOKEN" ]; then
+          export MY_OPERATOR_IMAGE_SPARK="ghcr.io/$GHCR_USER/openserverless-operator:spark-dev"
+        else
+          export MY_OPERATOR_IMAGE_SPARK="${REGISTRY_HOST}/$GITHUB_USER/openserverless-operator:$TAG"
+        fi
+        envsubst < deploy/nuvolaris-operator/operator-pod-spark.yaml > _operator-pod-spark.yaml
+      - kubectl -n nuvolaris delete pod nuvolaris-operator-spark --ignore-not-found
+      - kubectl -n nuvolaris apply -f _operator-pod-spark.yaml
+      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-spark --timeout=180s || true
+      - kubectl -n nuvolaris get pod nuvolaris-operator-spark -o wide || true
+      - |
+        WHISK=whisk-spark task t:instance
+
+  login-ghcr:
+    desc: "login a GHCR (richiede GHCR_USER e GHCR_TOKEN in .env)"
+    cmds:
+      - test -n "$GHCR_USER" || (echo "GHCR_USER mancante" && exit 1)
+      - test -n "$GHCR_TOKEN" || (echo "GHCR_TOKEN mancante" && exit 1)
+      - echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
+
+  build-ghcr:
+    desc: "build immagine operatore Spark (ghcr.io/$GHCR_USER/openserverless-operator:spark-dev)"
+    cmds:
+      - test -n "$GHCR_USER" || (echo "GHCR_USER mancante" && exit 1)
+      - podman build -t ghcr.io/$GHCR_USER/openserverless-operator:spark-dev -f Dockerfile .
+
+  push-ghcr:
+    desc: "push immagine operatore Spark su GHCR"
+    deps: [login-ghcr]
+    cmds:
+      - test -n "$GHCR_USER" || (echo "GHCR_USER mancante" && exit 1)
+      - podman push ghcr.io/$GHCR_USER/openserverless-operator:spark-dev
+
+  deploy-ghcr:
+    desc: "deploy pod operatore Spark usando manifest parametrizzato"
+    env:
+      GHCR_USER: ${GHCR_USER}
+    cmds:
+      - test -n "$GHCR_USER" || (echo "GHCR_USER mancante" && exit 1)
+      - envsubst < deploy/nuvolaris-operator/operator-pod-spark.yaml > _operator-pod-spark.yaml
+      - kubectl -n nuvolaris apply -f deploy/nuvolaris-permissions || true
+      - kubectl -n nuvolaris apply -f _operator-pod-spark.yaml
+      - kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-spark --timeout=180s || true
+      - kubectl -n nuvolaris get pod nuvolaris-operator-spark -o wide || true
+
+  all-ghcr:
+    desc: "build + push + deploy operatore Spark (GHCR)"
+    cmds:
+      - task: build-ghcr
+      - task: push-ghcr
+      - task: deploy-ghcr
+
+  # ── CRD & Permissions ──────────────────────────────────────────────────────
+
+  deploy-crd:
+    desc: "applica SparkJob CRD e verifica registrazione"
+    cmds:
+      - kubectl apply -f deploy/nuvolaris-permissions/sparkjob-crd.yaml
+      - kubectl get crd sparkjobs.nuvolaris.org || true
+
+  # ── Tests ──────────────────────────────────────────────────────────────────
+
+  test-pi-submit:
+    desc: "SparkPi via spark-submit classico — verifica salute del cluster"
+    cmds:
+      - kubectl delete job spark-pi-submit-test -n nuvolaris --ignore-not-found
+      - kubectl apply -f tests/spark/test-sparkpi-submit.yaml
+      - kubectl -n nuvolaris wait --for=condition=complete job/spark-pi-submit-test --timeout=120s
+      - echo "=== Risultato ==="
+      - kubectl -n nuvolaris logs -l job-name=spark-pi-submit-test | grep "Pi is roughly"
+
+  test-pi-crd:
+    desc: "SparkPi via SparkJob CRD (monitoring off) — verifica operator base"
+    cmds:
+      - kubectl delete sparkjob pi-crd-test -n nuvolaris --ignore-not-found
+      - kubectl delete job pi-crd-test-driver -n nuvolaris --ignore-not-found
+      - sleep 3
+      - kubectl apply -f tests/spark/test-sparkpi-crd.yaml
+      - kubectl -n nuvolaris wait --for=condition=complete job/pi-crd-test-driver --timeout=120s
+      - echo "=== Risultato ==="
+      - |
+        POD=$(kubectl -n nuvolaris get pod -l job-name=pi-crd-test-driver -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n nuvolaris logs $POD | grep "Pi is roughly"
+
+  test-pi-crd-reconcile:
+    desc: "SparkPi via SparkJob CRD con eventLog+historyServer — valida watcher/reconciler/History"
+    cmds:
+      - kubectl delete sparkjob pi-reconcile-test -n nuvolaris --ignore-not-found
+      - kubectl delete job pi-reconcile-test-driver -n nuvolaris --ignore-not-found
+      - sleep 3
+      - kubectl apply -f tests/spark/test-sparkpi-crd-reconcile.yaml
+      - kubectl -n nuvolaris wait --for=condition=complete job/pi-reconcile-test-driver --timeout=120s
+      - echo "=== Risultato Pi ==="
+      - |
+        POD=$(kubectl -n nuvolaris get pod -l job-name=pi-reconcile-test-driver -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n nuvolaris logs $POD | grep "Pi is roughly"
+      - echo "=== Event log su PVC ==="
+      - |
+        HIST=$(kubectl -n nuvolaris get pod -l component=spark-history -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n nuvolaris exec $HIST -- ls -lh /tmp/spark-events
+
+  pipeline-test:
+    desc: "test end-to-end: CRD reconcile → verifica History → trigger → reconciler → report"
+    cmds:
+      - task: clean
+      - task: test-pi-crd-reconcile
+      - echo "=== History Server — event log ==="
+      - |
+        HIST=$(kubectl -n nuvolaris get pod -l component=spark-history -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n nuvolaris exec $HIST -- ls -lh /tmp/spark-events
+      - echo "=== Trigger OWS — eventi watcher ==="
+      - task: test-trigger
+      - echo "=== Reconciler CronJob — ultima esecuzione ==="
+      - kubectl -n nuvolaris get cronjob spark-reconciler -o jsonpath='{.status.lastScheduleTime}' && echo
+      - kubectl -n nuvolaris get jobs -l app=spark-reconciler --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -3 || true
+      - echo "=== PVC spark-history-pvc ==="
+      - kubectl -n nuvolaris get pvc spark-history-pvc
+      - echo "=== Report finale — pod Spark ==="
+      - kubectl -n nuvolaris get pod -l app=spark -o wide
+
+  # ── Observability ──────────────────────────────────────────────────────────
+
+  status:
+    desc: "stato di tutti i componenti Spark (cluster, jobs, PVC, watcher, reconciler)"
+    cmds:
+      - echo "=== Spark Cluster Pods ==="
+      - kubectl -n nuvolaris get pods -l app=spark | grep -E "(master|worker|history)" || echo "Spark cluster non attivo"
+      - echo "=== SparkJobs ==="
+      - kubectl -n nuvolaris get sparkjobs -o wide || echo "Nessun SparkJob"
+      - echo "=== Driver Jobs ==="
+      - kubectl -n nuvolaris get jobs -l app=spark,component=driver || echo "Nessun driver job"
+      - echo "=== PVC ==="
+      - kubectl -n nuvolaris get pvc spark-history-pvc || echo "PVC non trovato"
+      - echo "=== Watcher + Reconciler ==="
+      - kubectl -n nuvolaris get deployment spark-watcher cronjob/spark-reconciler || true
+
+  logs-operator:
+    desc: "tail log operator filtrati su spark/watcher/reconciler/secret"
+    cmds:
+      - kubectl -n nuvolaris logs pod/nuvolaris-operator -f | grep -iE "spark|watcher|reconciler|secret|ERROR|WARNING"
+
+  test-trigger:
+    desc: "verifica se spark-watcher ha inviato eventi al trigger OWS spark-job-status"
+    cmds:
+      - echo "=== Log spark-watcher (fonte primaria) ==="
+      - kubectl -n nuvolaris logs deployment/spark-watcher --tail=50 | grep -iE "trigger|spark-job-status|OWS|POST|sent|error" || echo "Nessun evento trigger nei log watcher"
+      - echo "=== Attivazioni OWS via CouchDB (opzionale) ==="
+      - |
+        COUCH_USER=$(kubectl -n nuvolaris get secret couchdb-auth -o jsonpath='{.data.adminUsername}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+        COUCH_PASS=$(kubectl -n nuvolaris get secret couchdb-auth -o jsonpath='{.data.adminPassword}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+        if [ -n "$COUCH_USER" ]; then
+          kubectl -n nuvolaris exec deployment/couchdb -- \
+            curl -s -u "${COUCH_USER}:${COUCH_PASS}" \
+            "http://localhost:5984/nuvolaris_activations/_all_docs?limit=5&descending=true" \
+            2>/dev/null | python3 -m json.tool 2>/dev/null | grep -i "spark\|trigger" || echo "Nessuna attivazione spark trovata"
+        else
+          echo "Secret couchdb-auth non disponibile, skip verifica CouchDB"
+        fi
+
+  # ── Cleanup ────────────────────────────────────────────────────────────────
+
+  clean:
+    desc: "rimuove tutte le risorse di test SparkJob"
+    cmds:
+      - kubectl -n nuvolaris delete sparkjob pi-crd-test --ignore-not-found
+      - kubectl -n nuvolaris delete sparkjob pi-reconcile-test --ignore-not-found
+      - kubectl -n nuvolaris delete job pi-crd-test-driver --ignore-not-found
+      - kubectl -n nuvolaris delete job pi-reconcile-test-driver --ignore-not-found
+      - kubectl -n nuvolaris delete job spark-pi-submit-test --ignore-not-found
+      - echo "Risorse test Spark rimosse"

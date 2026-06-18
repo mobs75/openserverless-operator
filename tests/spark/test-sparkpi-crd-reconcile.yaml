@@ -1,0 +1,46 @@
+# Test: SparkPi via SparkJob CRD con event log e History Server abilitati
+#
+# Variante di test-sparkpi-crd.yaml per validare il ciclo completo:
+# watcher → trigger OWS, reconciler CronJob, History Server (PVC).
+# NON modificare test-sparkpi-crd.yaml — quello ha monitoring disabilitato.
+#
+# Esecuzione:
+#   kubectl apply -f tests/spark/test-sparkpi-crd-reconcile.yaml
+#   kubectl logs -n nuvolaris -l job-name=pi-reconcile-test-driver -f
+#   # Atteso: "Pi is roughly 3.14..."
+#
+# Pulizia:
+#   task spark:clean
+apiVersion: nuvolaris.org/v1
+kind: SparkJob
+metadata:
+  name: pi-reconcile-test
+  namespace: nuvolaris
+spec:
+  application:
+    mainClass: org.apache.spark.examples.SparkPi
+    mainApplicationFile: local:///opt/spark/examples/jars/spark-examples_2.12-3.5.0.jar
+    arguments:
+      - "10"
+    source:
+      type: url
+      url: local:///opt/spark/examples/jars/spark-examples_2.12-3.5.0.jar
+  spark:
+    master: spark://spark-master:7077
+    conf: {}
+    driver:
+      cores: 1
+      memory: 1Gi
+      serviceAccount: spark
+    executor:
+      instances: 2
+      cores: 1
+      memory: 512m
+  execution:
+    restartPolicy: Never
+    timeout: 300
+    backoffLimit: 0
+  monitoring:
+    enabled: true
+    eventLog: true
+    historyServer: true
