@@ -669,7 +669,9 @@ def _create_spark_driver_job(job_config, job_name, namespace):
             'labels': {
                 'app': 'spark',
                 'component': 'driver',
-                'sparkjob': job_name
+                'sparkjob': job_name,
+                'nuvolaris.org/spark-role': 'driver',
+                'nuvolaris.org/component': 'spark'
             }
         },
         'spec': {
@@ -680,7 +682,9 @@ def _create_spark_driver_job(job_config, job_name, namespace):
                     'labels': {
                         'app': 'spark',
                         'component': 'driver',
-                        'sparkjob': job_name
+                        'sparkjob': job_name,
+                        'nuvolaris.org/spark-role': 'driver',
+                        'nuvolaris.org/component': 'spark'
                     }
                 },
                 'spec': {

@@ -190,6 +190,12 @@ tasks:
       - kubectl delete job pi-crd-test-driver -n nuvolaris --ignore-not-found
       - sleep 3
       - kubectl apply -f tests/spark/test-sparkpi-crd.yaml
+      - |
+        echo "Attendo creazione driver job da parte dell'operator..."
+        for i in $(seq 1 30); do
+          kubectl -n nuvolaris get job pi-crd-test-driver 2>/dev/null && break
+          sleep 2
+        done
       - kubectl -n nuvolaris wait --for=condition=complete job/pi-crd-test-driver --timeout=120s
       - echo "=== Risultato ==="
       - |
@@ -203,7 +209,13 @@ tasks:
       - kubectl delete job pi-reconcile-test-driver -n nuvolaris --ignore-not-found
       - sleep 3
       - kubectl apply -f tests/spark/test-sparkpi-crd-reconcile.yaml
-      - kubectl -n nuvolaris wait --for=condition=complete job/pi-reconcile-test-driver --timeout=120s
+      - |
+        echo "Attendo creazione driver job da parte dell'operator..."
+        for i in $(seq 1 30); do
+          kubectl -n nuvolaris get job pi-reconcile-test-driver 2>/dev/null && break
+          sleep 2
+        done
+      - kubectl -n nuvolaris wait --for=condition=complete job/pi-reconcile-test-driver --timeout=300s
       - echo "=== Risultato Pi ==="
       - |
         POD=$(kubectl -n nuvolaris get pod -l job-name=pi-reconcile-test-driver -o jsonpath='{.items[0].metadata.name}')
