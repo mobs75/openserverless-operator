@@ -20,6 +20,7 @@ import json
 import time
 import logging
 import datetime
+import base64
 import requests
 import requests.auth
 
@@ -301,7 +302,7 @@ class OWSClient:
             "namespace": namespace,
             "timestamp": timestamp,
         }
-        headers = {"Authorization": f"Bearer {self._auth_token}"}
+        headers = {"Authorization": "Basic " + base64.b64encode(self._auth_token.encode()).decode()}
         delays = [1, 2, 4]
         last_exc: Exception | None = None
 
