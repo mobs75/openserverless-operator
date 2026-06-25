@@ -242,6 +242,7 @@ tasks:
   pipeline-test:
     desc: "test end-to-end: CRD reconcile → verifica History → trigger → reconciler → report"
     cmds:
+      - task: verify-whisk-secrets
       - task: clean
       - task: test-pi-crd-reconcile
       - echo "=== History Server — event log ==="
@@ -273,6 +274,30 @@ tasks:
       - kubectl -n nuvolaris get pvc spark-history-pvc || echo "PVC non trovato"
       - echo "=== Watcher + Reconciler ==="
       - kubectl -n nuvolaris get deployment spark-watcher cronjob/spark-reconciler || true
+
+  verify-whisk-secrets:
+    desc: "verifica che il token whisk-system nel CRD non sia il placeholder di sviluppo"
+    cmds:
+      - |
+        TOKEN=$(kubectl -n nuvolaris get wsk/controller \
+          -o jsonpath='{.spec.openwhisk.namespaces.whisk-system}' 2>/dev/null)
+        if [ -z "$TOKEN" ]; then
+          echo "ERRORE: impossibile leggere spec.openwhisk.namespaces.whisk-system dal CRD wsk/controller"
+          exit 1
+        fi
+        UUID="${TOKEN%%:*}"
+        PLACEHOLDER="789c46b1-71f6-4ed5-8c54-816aa4f8c502"
+        if [ "$UUID" = "$PLACEHOLDER" ]; then
+          echo ""
+          echo "WARNING: whisk-system usa il token placeholder di sviluppo!"
+          echo "  UUID letto : $UUID"
+          echo "  Le system action whisk-system potrebbero non essere deployate correttamente."
+          echo "  Verifica lo stato effettivo con:"
+          echo "  kubectl -n nuvolaris get wsk controller -o jsonpath='{.status.whisk_create.whisk-system}'"
+          echo ""
+        else
+          echo "OK: token whisk-system sembra valido (UUID: $UUID)"
+        fi
 
   logs-operator:
     desc: "tail log operator filtrati su spark/watcher/reconciler/secret"
