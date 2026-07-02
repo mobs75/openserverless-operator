@@ -59,6 +59,37 @@ tasks:
       - kubectl rollout restart deployment/spark-watcher -n nuvolaris
       - kubectl -n nuvolaris rollout status deployment/spark-watcher --timeout=60s
 
+  # Alternativa a rebuild-deploy per ambienti con Docker disponibile localmente:
+  # usa docker buildx invece di Kaniko (non richiede Job in-cluster né ConfigMap).
+  rebuild-deploy-buildx:
+    desc: "docker buildx build (amd64) + push registry interno + patch StatefulSet + ricrea nuvolaris-operator-0"
+    cmds:
+      - |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
+        IMG="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator:${TAG}"
+        echo "→ Build e push con docker buildx: $IMG"
+        docker buildx build \
+          --platform linux/amd64 \
+          -t "${IMG}" \
+          --build-arg OPERATOR_IMAGE_DEFAULT="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator" \
+          --build-arg OPERATOR_TAG_DEFAULT="${TAG}" \
+          . --push
+      - |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
+        IMG="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator:${TAG}"
+        echo "→ Patch StatefulSet nuvolaris-operator con immagine: $IMG"
+        kubectl -n nuvolaris patch statefulset nuvolaris-operator \
+          --type=json \
+          -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMG}\"}]"
+      - kubectl -n nuvolaris delete pod nuvolaris-operator-0
+      - |
+        echo "→ Attendo che lo StatefulSet ricrei nuvolaris-operator-0..."
+        until kubectl -n nuvolaris get pod nuvolaris-operator-0 >/dev/null 2>&1; do sleep 2; done
+        kubectl -n nuvolaris wait --for=condition=Ready pod/nuvolaris-operator-0 --timeout=180s
+      - kubectl -n nuvolaris get pod nuvolaris-operator-0 -o wide
+      - kubectl rollout restart deployment/spark-watcher -n nuvolaris
+      - kubectl -n nuvolaris rollout status deployment/spark-watcher --timeout=60s
+
   standard:
     desc: build (kaniko) e deploy operatore con Spark + istanza whisk-spark
     env:
