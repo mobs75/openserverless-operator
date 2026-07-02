@@ -61,17 +61,24 @@ tasks:
 
   # Alternativa a rebuild-deploy per ambienti con Docker disponibile localmente:
   # usa docker buildx invece di Kaniko (non richiede Job in-cluster né ConfigMap).
+  # Push via NodePort (raggiungibile dal daemon Docker sull'host); patch StatefulSet
+  # con DNS interno (usato dai pod nel cluster per il pull — già fidato da containerd).
   rebuild-deploy-buildx:
-    desc: "docker buildx build (amd64) + push registry interno + patch StatefulSet + ricrea nuvolaris-operator-0"
+    desc: "docker buildx build (amd64) + push via NodePort + patch StatefulSet + ricrea nuvolaris-operator-0"
     cmds:
       - |
+        PUSH_REGISTRY="docker-registry.kube-system.svc.cluster.local:5000"
+        if kubectl -n kube-system get svc docker-registry-nodeport >/dev/null 2>&1; then
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          [ -n "$NODE_IP" ] && PUSH_REGISTRY="${NODE_IP}:30500"
+        fi
         TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
-        IMG="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator:${TAG}"
+        IMG="${PUSH_REGISTRY}/$GITHUB_USER/openserverless-operator:${TAG}"
         echo "→ Build e push con docker buildx: $IMG"
         docker buildx build \
           --platform linux/amd64 \
           -t "${IMG}" \
-          --build-arg OPERATOR_IMAGE_DEFAULT="docker-registry.kube-system.svc.cluster.local:5000/$GITHUB_USER/openserverless-operator" \
+          --build-arg OPERATOR_IMAGE_DEFAULT="${PUSH_REGISTRY}/$GITHUB_USER/openserverless-operator" \
           --build-arg OPERATOR_TAG_DEFAULT="${TAG}" \
           . --push
       - |
