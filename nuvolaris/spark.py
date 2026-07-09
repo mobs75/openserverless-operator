@@ -10,6 +10,7 @@ This operator manages Apache Spark cluster deployment including:
 
 import kopf
 import logging
+import os
 import nuvolaris.kustomize as kus
 import nuvolaris.kube as kube
 import nuvolaris.config as cfg
@@ -182,6 +183,9 @@ def delete(owner=None):
     logging.info("*** deleting spark cluster")
     
     if owner:
+        if not os.path.exists('deploy/spark/kustomization.yaml'):
+            logging.warning("spark kustomization.yaml not found, skipping kus.build (fresh cluster or pod restart)")
+            return None
         # Delete via owner reference rebuild
         spec = kus.build("spark")
     else:
