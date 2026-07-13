@@ -47,7 +47,7 @@ rules:
 
 - apiGroups: ["rbac.authorization.k8s.io"]
   resources: ["clusterroles","clusterrolebindings","rolebindings","roles"]
-  verbs: ["get", "list", "watch","create", "update", "patch", "delete"]
+  verbs: ["get", "list", "watch","create", "update", "patch", "delete", "escalate", "bind"]
 
 - apiGroups: ["route.openshift.io"]
   resources: ["routes", "routes/custom-host"]
