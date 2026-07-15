@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ows-spark-creator
+  namespace: nuvolaris
+rules:
+  - apiGroups: ["nuvolaris.org"]
+    resources: ["sparkjobs"]
+    verbs: ["create", "get", "list", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ows-spark-creator
+  namespace: nuvolaris
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ows-spark-creator
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: nuvolaris
